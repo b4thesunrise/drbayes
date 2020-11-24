@@ -14,6 +14,7 @@ import time
 import torch.nn.functional as F
 import torch.nn as nn
 
+from .eval.meta_eval import meta_test
 
 class LabelSmoothing(nn.Module):
     """
@@ -328,6 +329,33 @@ def predict(loader, model, verbose=False):
         'targets': np.concatenate(targets)
     }
 
+def mata_eval(model, meta_valloader, meta_testloader, status, classifier='LR'):
+    # evalation
+    start = time.time()
+    val_acc, val_std = meta_test(model, meta_valloader, classifier=classifier)
+    val_time = time.time() - start
+    print('{}: val_acc: {:.4f}, val_std: {:.4f}, time: {:.1f}'.format(status, val_acc, val_std,
+                                                                  val_time))
+
+    start = time.time()
+    val_acc_feat, val_std_feat = meta_test(model, meta_valloader, use_logit=False, classifier=classifier)
+    val_time = time.time() - start
+    print('{}: val_acc_feat: {:.4f}, val_std: {:.4f}, time: {:.1f}'.format(status, val_acc_feat,
+                                                                       val_std_feat,
+                                                                       val_time))
+
+    start = time.time()
+    test_acc, test_std = meta_test(model, meta_testloader, classifier=classifier)
+    test_time = time.time() - start
+    print('{}: test_acc: {:.4f}, test_std: {:.4f}, time: {:.1f}'.format(status, test_acc, test_std,
+                                                                    test_time))
+
+    start = time.time()
+    test_acc_feat, test_std_feat = meta_test(model, meta_testloader, use_logit=False, classifier=classifier)
+    test_time = time.time() - start
+    print('{}: test_acc_feat: {:.4f}, test_std: {:.4f}, time: {:.1f}'.format(status, test_acc_feat,
+                                                                         test_std_feat,
+                                                                         test_time))
 
 def moving_average(net1, net2, alpha=1):
     for param1, param2 in zip(net1.parameters(), net2.parameters()):

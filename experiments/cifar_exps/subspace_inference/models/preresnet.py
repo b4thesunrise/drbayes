@@ -134,20 +134,27 @@ class PreResNet(nn.Module):
 
         return nn.Sequential(*layers)
 
-    def forward(self, x):
+    def forward(self, x, is_feat=False):
         x = self.conv1(x)
 
         x = self.layer1(x)  # 32x32
+        f0 = x
         x = self.layer2(x)  # 16x16
+        f1 = x
         x = self.layer3(x)  # 8x8
+        f2 = x
         x = self.bn(x)
         x = self.relu(x)
 
         x = self.avgpool(x)
         x = x.view(x.size(0), -1)
+        feat = x
         x = self.fc(x)
 
-        return x
+        if is_feat:
+            return [f0, f1, f2, feat], x
+        else:
+            return x
 
 class PreResNet164:
     base = PreResNet

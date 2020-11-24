@@ -218,7 +218,7 @@ else:
     args.no_cov_mat = True
 if args.swag:
     print('SWAG training')
-    swag_model = SWAG(model_cfg.base, 
+    swag_model = SWAG(model_cfg.base,
                     subspace_type=args.subspace, subspace_kwargs={'max_rank': args.max_num_models},
                     *model_cfg.args, num_classes=num_classes, **model_cfg.kwargs)
     swag_model.to(args.device)
@@ -309,6 +309,8 @@ for epoch in range(start_epoch, args.epochs):
 
     if epoch == 0 or epoch % args.eval_freq == args.eval_freq - 1 or epoch == args.epochs - 1:
         test_res = utils.eval(val_loader, model, criterion)
+        utils.mata_eval(model, meta_valloader, meta_testloader, 'BASELINE')
+
     else:
         test_res = {'loss': None, 'accuracy': None}
 
@@ -329,6 +331,7 @@ for epoch in range(start_epoch, args.epochs):
             swag_model.set_swa()
             utils.bn_update(train_loader, swag_model)
             swag_res = utils.eval(val_loader, swag_model, criterion)
+            utils.mata_eval(swag_model, meta_valloader, meta_testloader, 'SWAG', classifier='LR')
         else:
             swag_res = {'loss': None, 'accuracy': None}
 
