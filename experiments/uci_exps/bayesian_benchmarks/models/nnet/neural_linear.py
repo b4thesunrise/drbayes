@@ -93,7 +93,7 @@ class NLRegressionRunner(RegressionModel):
 
         if self.criterion.noise_var is not None:
             # another forwards pass through network to estimate noise variance
-            preds, targets = utils.predictions(model=self.model, test_loader=self.data_loader, regression=True,cuda=self.use_cuda)
+            preds, targets = utils.predictions(model=self.model, test_loader=self.data_loader, regression=True, cuda=self.use_cuda)
             self.var = np.power(np.linalg.norm(preds - targets), 2.0) / targets.shape[0]
             print(self.var)
 

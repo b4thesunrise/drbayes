@@ -5,8 +5,6 @@ import time
 import tabulate
 
 import torch
-import tqdm
-import torch.nn.functional as F
 
 import numpy as np
 

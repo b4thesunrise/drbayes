@@ -5,10 +5,6 @@ from torch.utils.data import TensorDataset, DataLoader
 from subspace_inference import utils
 from subspace_inference.posteriors.proj_model import SubspaceModel
 from subspace_inference.posteriors import SWAG, EllipticalSliceSampling, BenchmarkVIModel
-from subspace_inference.posteriors import BenchmarkVINFModel
-from subspace_inference.posteriors.realnvp import RealNVP, construct_flow
-
-import copy
 
 #from pyro.infer.mcmc import NUTS
 #import pyro.distributions as dist
@@ -132,7 +128,7 @@ class RegressionRunner(RegressionModel):
 
         if self.criterion.noise_var is not None:
             # another forwards pass through network to estimate noise variance
-            preds, targets = utils.predictions(model=self.model, test_loader=self.data_loader, regression=True,cuda=self.use_cuda)
+            preds, targets = utils.predictions(model=self.model, test_loader=self.data_loader, regression=True, cuda=self.use_cuda)
             self.var = np.power(np.linalg.norm(preds - targets), 2.0) / targets.shape[0]
             print(self.var)
 

@@ -8,19 +8,29 @@ import torch.nn.functional as F
 import torchvision
 import numpy as np
 
+from subspace_inference.dataset.mini_imagenet import ImageNet, MetaImageNet
+from subspace_inference.dataset.tiered_imagenet import TieredImageNet, MetaTieredImageNet
+from subspace_inference.dataset.cifar import CIFAR100, MetaCIFAR100
+from subspace_inference.dataset.transform_cfg import transforms_options, transforms_list
 from subspace_inference import data, models, utils, losses
 from subspace_inference.posteriors import SWAG
+from torch.utils.data import DataLoader
+torch.multiprocessing.set_sharing_strategy('file_system')
+
 
 parser = argparse.ArgumentParser(description='SGD/SWA training')
 parser.add_argument('--dir', type=str, default=None, required=True, help='training directory (default: None)')
 
-parser.add_argument('--dataset', type=str, default='CIFAR10', help='dataset name (default: CIFAR10)')
+parser.add_argument('--dataset', type=str, default='CIFAR10', help='dataset name (default: CIFAR10)',choices=['miniImageNet', 'tieredImageNet',
+                                                                            'CIFAR-FS', 'FC100', 'CIFAR10', 'CIFAR100'])
+parser.add_argument('--data_root', type=str, default='', help='path to data root')
+parser.add_argument('--use_trainval', action='store_true', help='use trainval set')
 parser.add_argument('--data_path', type=str, default=None, required=True, metavar='PATH',
                     help='path to datasets location (default: None)')
 parser.add_argument('--use_test', dest='use_test', action='store_true', help='use test dataset instead of validation (default: False)')
 parser.add_argument('--split_classes', type=int, default=None)
-parser.add_argument('--batch_size', type=int, default=128, metavar='N', help='input batch size (default: 128)')
-parser.add_argument('--num_workers', type=int, default=4, metavar='N', help='number of workers (default: 4)')
+parser.add_argument('--batch_size', type=int, default=64, metavar='N', help='input batch size (default: 128)')
+parser.add_argument('--num_workers', type=int, default=8, metavar='N', help='number of workers (default: 4)')
 parser.add_argument('--model', type=str, default=None, required=True, metavar='MODEL',
                     help='model name (default: None)')
 
@@ -31,7 +41,7 @@ parser.add_argument('--epochs', type=int, default=200, metavar='N', help='number
 parser.add_argument('--save_freq', type=int, default=25, metavar='N', help='save frequency (default: 25)')
 parser.add_argument('--eval_freq', type=int, default=5, metavar='N', help='evaluation frequency (default: 5)')
 parser.add_argument('--lr_init', type=float, default=0.01, metavar='LR', help='initial learning rate (default: 0.01)')
-parser.add_argument('--momentum', type=float, default=0.9, metavar='M', help='SGD momentum (default: 0.9)')
+# parser.add_argument('--momentum', type=float, default=0.9, metavar='M', help='SGD momentum (default: 0.9)')
 parser.add_argument('--wd', type=float, default=1e-4, help='weight decay (default: 1e-4)')
 
 parser.add_argument('--swag', action='store_true')
@@ -52,9 +62,120 @@ parser.add_argument('--no_schedule', action='store_true', help='store schedule')
 parser.add_argument('--save_iterates', action='store_true', help='save all iterates in the SWA(G) stage (default: off)')
 parser.add_argument('--inference', choices=['low_rank_gaussian', 'projected_sgd'], default='low_rank_gaussian')
 parser.add_argument('--subspace', choices=['covariance', 'pca', 'freq_dir'], default='covariance')
+
+#from rfs
+
+parser.add_argument('--transform', type=str, default='A', choices=transforms_list)
+
+# meta setting
+parser.add_argument('--adam', action='store_true', help='use adam optimizer')
+parser.add_argument('--learning_rate', type=float, default=0.05, help='learning rate')
+parser.add_argument('--lr_decay_epochs', type=str, default='60,80', help='where to decay lr, can be a list')
+parser.add_argument('--lr_decay_rate', type=float, default=0.1, help='decay rate for learning rate')
+parser.add_argument('--weight_decay', type=float, default=5e-4, help='weight decay')
+parser.add_argument('--momentum', type=float, default=0.9, help='momentum')
+
+parser.add_argument('--n_test_runs', type=int, default=600, metavar='N',
+                    help='Number of test runs')
+parser.add_argument('--n_ways', type=int, default=5, metavar='N',
+                    help='Number of classes for doing each classification run')
+parser.add_argument('--n_shots', type=int, default=1, metavar='N',
+                    help='Number of shots in test')
+parser.add_argument('--n_queries', type=int, default=15, metavar='N',
+                    help='Number of query in test')
+parser.add_argument('--n_aug_support_samples', default=5, type=int,
+                    help='The number of augmented samples for each meta test sample')
+parser.add_argument('--test_batch_size', type=int, default=1, metavar='test_batch_size',
+                    help='Size of test batch)')
 args = parser.parse_args()
 
+if args.use_trainval:
+    args.trial = args.trial + '_trainval'
+if args.dataset == 'CIFAR-FS' or args.dataset == 'FC100':
+    args.transform = 'D'
+args.data_aug = True
+
+train_partition = 'trainval' if args.use_trainval else 'train'
+if args.dataset == 'miniImageNet':
+    train_trans, test_trans = transforms_options[args.transform]
+    train_loader = DataLoader(ImageNet(args=args, partition=train_partition, transform=train_trans),
+                              batch_size=args.batch_size, shuffle=True, drop_last=True,
+                              num_workers=args.num_workers)
+    val_loader = DataLoader(ImageNet(args=args, partition='val', transform=test_trans),
+                            batch_size=args.batch_size // 2, shuffle=False, drop_last=False,
+                            num_workers=args.num_workers // 2)
+    meta_testloader = DataLoader(MetaImageNet(args=args, partition='test',
+                                              train_transform=train_trans,
+                                              test_transform=test_trans),
+                                 batch_size=args.test_batch_size, shuffle=False, drop_last=False,
+                                 num_workers=args.num_workers)
+    meta_valloader = DataLoader(MetaImageNet(args=args, partition='val',
+                                             train_transform=train_trans,
+                                             test_transform=test_trans),
+                                batch_size=args.test_batch_size, shuffle=False, drop_last=False,
+                                num_workers=args.num_workers)
+    if args.use_trainval:
+        num_classes = 80
+    else:
+        num_classes = 64
+elif args.dataset == 'tieredImageNet':
+    train_trans, test_trans = transforms_options[args.transform]
+    train_loader = DataLoader(TieredImageNet(args=args, partition=train_partition, transform=train_trans),
+                              batch_size=args.batch_size, shuffle=True, drop_last=True,
+                              num_workers=args.num_workers)
+    val_loader = DataLoader(TieredImageNet(args=args, partition='train_phase_val', transform=test_trans),
+                            batch_size=args.batch_size // 2, shuffle=False, drop_last=False,
+                            num_workers=args.num_workers // 2)
+    meta_testloader = DataLoader(MetaTieredImageNet(args=args, partition='test',
+                                                    train_transform=train_trans,
+                                                    test_transform=test_trans),
+                                 batch_size=args.test_batch_size, shuffle=False, drop_last=False,
+                                 num_workers=args.num_workers)
+    meta_valloader = DataLoader(MetaTieredImageNet(args=args, partition='val',
+                                                   train_transform=train_trans,
+                                                   test_transform=test_trans),
+                                batch_size=args.test_batch_size, shuffle=False, drop_last=False,
+                                num_workers=args.num_workers)
+    if args.use_trainval:
+        num_classes = 448
+    else:
+        num_classes = 351
+elif args.dataset == 'CIFAR-FS' or args.dataset == 'FC100':
+    train_trans, test_trans = transforms_options['D']
+
+    train_loader = DataLoader(CIFAR100(args=args, partition=train_partition, transform=train_trans),
+                              batch_size=args.batch_size, shuffle=True, drop_last=True,
+                              num_workers=args.num_workers)
+    val_loader = DataLoader(CIFAR100(args=args, partition='train', transform=test_trans),
+                            batch_size=args.batch_size // 2, shuffle=False, drop_last=False,
+                            num_workers=args.num_workers // 2)
+    meta_testloader = DataLoader(MetaCIFAR100(args=args, partition='test',
+                                              train_transform=train_trans,
+                                              test_transform=test_trans),
+                                 batch_size=args.test_batch_size, shuffle=False, drop_last=False,
+                                 num_workers=args.num_workers)
+    meta_valloader = DataLoader(MetaCIFAR100(args=args, partition='val',
+                                             train_transform=train_trans,
+                                             test_transform=test_trans),
+                                batch_size=args.test_batch_size, shuffle=False, drop_last=False,
+                                num_workers=args.num_workers)
+    if args.use_trainval:
+        num_classes = 80
+    else:
+        if args.dataset == 'CIFAR-FS':
+            num_classes = 64
+        elif args.dataset == 'FC100':
+            num_classes = 60
+        else:
+            raise NotImplementedError('dataset not supported: {}'.format(args.dataset))
+else:
+    raise NotImplementedError(args.dataset)
+
+
+# assert
+
 args.device = None
+
 if torch.cuda.is_available():
     args.device = torch.device('cuda')
 else:
@@ -73,17 +194,17 @@ torch.cuda.manual_seed(args.seed)
 print('Using model %s' % args.model)
 model_cfg = getattr(models, args.model)
 
-print('Loading dataset %s from %s' % (args.dataset, args.data_path))
-loaders, num_classes = data.loaders(
-    args.dataset,
-    args.data_path,
-    args.batch_size,
-    args.num_workers,
-    model_cfg.transform_train,
-    model_cfg.transform_test,
-    use_validation=not args.use_test,
-    split_classes=args.split_classes
-)
+# print('Loading dataset %s from %s' % (args.dataset, args.data_path))
+# loaders, num_classes = data.loaders(
+#     args.dataset,
+#     args.data_path,
+#     args.batch_size,
+#     args.num_workers,
+#     model_cfg.transform_train,
+#     model_cfg.transform_test,
+#     use_validation=not args.use_test,
+#     split_classes=args.split_classes
+# )
 
 print('Preparing model')
 print(*model_cfg.args)
@@ -123,12 +244,25 @@ if args.loss == 'CE':
 elif args.loss == 'adv_CE':
     criterion = losses.adversarial_cross_entropy
     
-optimizer = torch.optim.SGD(
-    model.parameters(),
-    lr=args.lr_init,
-    momentum=args.momentum,
-    weight_decay=args.wd
-)
+# optimizer = torch.optim.SGD(
+#     model.parameters(),
+#     lr=args.lr_init,
+#     momentum=args.momentum,
+#     weight_decay=args.wd
+# )
+
+# optimizer
+if args.adam:
+    optimizer = torch.optim.Adam(model.parameters(),
+                                 lr=args.learning_rate,
+                                 weight_decay=0.0005)
+else:
+    optimizer = torch.optim.SGD(model.parameters(),
+                          lr=args.learning_rate,
+                          momentum=args.momentum,
+                          weight_decay=args.weight_decay)
+
+# criterion = torch.nn.CrossEntropyLoss()
 
 start_epoch = 0
 if args.resume is not None:
@@ -169,18 +303,18 @@ for epoch in range(start_epoch, args.epochs):
         lr = args.lr_init
     
     if (args.swag and (epoch + 1) > args.swag_start) and args.cov_mat:
-        train_res = utils.train_epoch(loaders['train'], model, criterion, optimizer)
+        train_res = utils.train_epoch(train_loader, model, criterion, optimizer, epoch)
     else:
-        train_res = utils.train_epoch(loaders['train'], model, criterion, optimizer)
+        train_res = utils.train_epoch(train_loader, model, criterion, optimizer, epoch)
 
     if epoch == 0 or epoch % args.eval_freq == args.eval_freq - 1 or epoch == args.epochs - 1:
-        test_res = utils.eval(loaders['test'], model, criterion)
+        test_res = utils.eval(val_loader, model, criterion)
     else:
         test_res = {'loss': None, 'accuracy': None}
 
     if args.swag and (epoch + 1) > args.swag_start and (epoch + 1 - args.swag_start) % args.swag_c_epochs == 0:
-        #sgd_preds, sgd_targets = utils.predictions(loaders["test"], model)
-        sgd_res = utils.predict(loaders["test"], model)
+        #sgd_preds, sgd_targets = utils.predictions(val_loader, model)
+        sgd_res = utils.predict(val_loader, model)
         sgd_preds = sgd_res["predictions"]
         sgd_targets = sgd_res["targets"]
         # print("updating sgd_ens")
@@ -193,8 +327,8 @@ for epoch in range(start_epoch, args.epochs):
         swag_model.collect_model(model)
         if epoch == 0 or epoch % args.eval_freq == args.eval_freq - 1 or epoch == args.epochs - 1:
             swag_model.set_swa()
-            utils.bn_update(loaders['train'], swag_model)
-            swag_res = utils.eval(loaders['test'], swag_model, criterion)
+            utils.bn_update(train_loader, swag_model)
+            swag_res = utils.eval(val_loader, swag_model, criterion)
         else:
             swag_res = {'loss': None, 'accuracy': None}
 
@@ -250,9 +384,9 @@ if args.epochs % args.save_freq != 0:
         )
 
         utils.set_weights(model, swag_model.mean)
-        utils.bn_update(loaders['train'], model)
+        utils.bn_update(train_loader, model)
         print("SWA solution")
-        print(utils.eval(loaders['test'], model, losses.cross_entropy))
+        print(utils.eval(val_loader, model, losses.cross_entropy))
 
         utils.save_checkpoint(
             args.dir,

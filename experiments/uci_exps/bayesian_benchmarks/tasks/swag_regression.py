@@ -4,7 +4,7 @@ import torch
 import os, sys
 import math
 
-from subspace_inference import models, losses, posteriors, utils
+from subspace_inference import models, losses, utils
 # from swag.posteriors import SWAG, EllipticalSliceSampling, BenchmarkPyro, BenchmarkVIModel
 from regression import run
 from bayesian_benchmarks.data import get_regression_data
@@ -124,9 +124,9 @@ extra_args = {}
 if args.inference == 'ess':
     regclass = ESSRegRunner
     extra_args = {'temperature': args.temperature}
-if args.inference == 'nuts':
-    regclass = PyroRegRunner
-    extra_args = {'prior_log_sigma':math.log(args.prior_std), 'temperature':args.temperature}
+# if args.inference == 'nuts':
+#     regclass = PyroRegRunner
+#     extra_args = {'prior_log_sigma':math.log(args.prior_std), 'temperature':args.temperature}
 if args.inference == 'vi':
     regclass = VIRegRunner
     extra_args = {'prior_log_sigma':math.log(args.prior_std), 'temperature':args.temperature}

@@ -3,7 +3,6 @@ import os, sys
 import math
 import time
 import tabulate
-import copy
 
 import torch
 
@@ -38,7 +37,7 @@ parser.add_argument('--num_samples', type=int, default=30, metavar='N', help='nu
 parser.add_argument('--curve', action='store_true')
 parser.add_argument('--random', action='store_true')
 parser.add_argument('--rank', type=int, default=2, metavar='N', help='approximation rank (default: 2')
-parser.add_argument('--checkpoint', type=str, default=None, required=True, help='path to SWAG checkpoint')
+parser.add_argument('--checkpoint', type=str, default=None, required=True, nargs='+', help='path to SWAG checkpoint')
 
 
 parser.add_argument('--prior_std', type=float, default=1.0, help='std of the prior distribution')
@@ -286,7 +285,8 @@ print("Ensemble Accuracy:", ens_acc)
 
 print("Ensemble Acc:", ens_acc)
 print("Ensemble NLL:", ens_nll)
-
+if not os.path.exists(args.dir):
+    os.mkdir(args.dir)
 np.savez(
     os.path.join(args.dir, 'ens.npz'),
     seed=args.seed,

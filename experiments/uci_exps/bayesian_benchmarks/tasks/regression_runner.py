@@ -8,10 +8,10 @@ from swag.posteriors import SWAG, BenchmarkVIModel, EllipticalSliceSampling
 from swag.posteriors import BenchmarkVINFModel
 from swag.posteriors.realnvp import RealNVP, construct_flow
 
-import copy
+# import copy
 
-from pyro.infer.mcmc import NUTS
-import pyro.distributions as dist
+# from pyro.infer.mcmc import NUTS
+# import pyro.distributions as dist
 
 def adjust_learning_rate(optimizer, factor):
     for param_group in optimizer.param_groups:
@@ -187,56 +187,56 @@ class RegressionRunner:
 
 
 
-class PyroRegRunner(RegressionRunner):
-    def __init__(self, base, epochs, criterion, 
-        batch_size = 50, lr_init=1e-2, momentum = 0.9, wd=1e-4,
-        swag_lr = 1e-3, swag_freq = 1, swag_start = 50, subspace_type='pca', subspace_kwargs={'max_rank': 20},
-        use_cuda = False, use_swag = True, model_variance=True,
-        num_samples = 30, scale = 0.5, double_bias_lr=False, const_lr=False,
-        prior_log_sigma = 1.0, kernel = NUTS, kernel_kwargs={'step_size':10},*args, **kwargs,):
-
-        super(PyroRegRunner, self).__init__(base=base, epochs=epochs, criterion=criterion, model_variance=model_variance,
-            batch_size = batch_size, lr_init=lr_init, momentum=momentum, wd=wd, use_cuda = use_cuda, use_swag = use_swag,
-            swag_lr = swag_lr, swag_freq = swag_freq, swag_start = swag_start, subspace_type=subspace_type, subspace_kwargs=subspace_kwargs,
-            num_samples = num_samples, scale = scale, double_bias_lr=double_bias_lr, const_lr=const_lr, *args, **kwargs)
-
-        self.prior_log_sigma = prior_log_sigma
-        self.kernel = kernel
-        self.kernel_kwargs = kernel_kwargs
-
-        self.base = base
-        self.args = args
-        self.kwargs = kwargs
-
-        if self.criterion.noise_var is None:
-            self.likelihood = lambda x: dist.Normal(x[:,0], x[:,1])
-        else:
-            self.likelihood = lambda x: dist.Normal(x, self.criterion.noise_var)
-
-    def fit(self, features, labels):
-        # tran standard SWAG model
-        results = super().fit(features, labels)
-
-        mean, _, cov = self.swag_model.get_space()
-        if self.use_cuda:
-            mean, cov = mean.cuda(), cov.cuda()
-        subspace = SubspaceModel(mean, cov)
-
-        if self.use_cuda:
-            torch.set_default_tensor_type(torch.cuda.FloatTensor)
-
-        # now form BenchmarkPyroClass
-        self.bench_pyro = BenchmarkPyroModel(self.base, subspace, likelihood_given_outputs=self.likelihood, 
-            prior_log_sigma=self.prior_log_sigma, batch_size = self.batch_size, num_samples=self.num_samples, 
-            *self.args, **self.kwargs)
-        if self.use_cuda:
-            self.bench_pyro.cuda()
-            self.features, self.labels = self.features.cuda(), self.labels.cuda()
-        
-        self.bench_pyro.fit(self.features, self.labels)
-
-    def predict(self, features):
-        return super().predict(features, swag_model=self.bench_pyro)
+# class PyroRegRunner(RegressionRunner):
+#     def __init__(self, base, epochs, criterion,
+#         batch_size = 50, lr_init=1e-2, momentum = 0.9, wd=1e-4,
+#         swag_lr = 1e-3, swag_freq = 1, swag_start = 50, subspace_type='pca', subspace_kwargs={'max_rank': 20},
+#         use_cuda = False, use_swag = True, model_variance=True,
+#         num_samples = 30, scale = 0.5, double_bias_lr=False, const_lr=False,
+#         prior_log_sigma = 1.0, kernel = NUTS, kernel_kwargs={'step_size':10},*args, **kwargs,):
+#
+#         super(PyroRegRunner, self).__init__(base=base, epochs=epochs, criterion=criterion, model_variance=model_variance,
+#             batch_size = batch_size, lr_init=lr_init, momentum=momentum, wd=wd, use_cuda = use_cuda, use_swag = use_swag,
+#             swag_lr = swag_lr, swag_freq = swag_freq, swag_start = swag_start, subspace_type=subspace_type, subspace_kwargs=subspace_kwargs,
+#             num_samples = num_samples, scale = scale, double_bias_lr=double_bias_lr, const_lr=const_lr, *args, **kwargs)
+#
+#         self.prior_log_sigma = prior_log_sigma
+#         self.kernel = kernel
+#         self.kernel_kwargs = kernel_kwargs
+#
+#         self.base = base
+#         self.args = args
+#         self.kwargs = kwargs
+#
+#         if self.criterion.noise_var is None:
+#             self.likelihood = lambda x: dist.Normal(x[:,0], x[:,1])
+#         else:
+#             self.likelihood = lambda x: dist.Normal(x, self.criterion.noise_var)
+#
+#     def fit(self, features, labels):
+#         # tran standard SWAG model
+#         results = super().fit(features, labels)
+#
+#         mean, _, cov = self.swag_model.get_space()
+#         if self.use_cuda:
+#             mean, cov = mean.cuda(), cov.cuda()
+#         subspace = SubspaceModel(mean, cov)
+#
+#         if self.use_cuda:
+#             torch.set_default_tensor_type(torch.cuda.FloatTensor)
+#
+#         # now form BenchmarkPyroClass
+#         self.bench_pyro = BenchmarkPyroModel(self.base, subspace, likelihood_given_outputs=self.likelihood,
+#             prior_log_sigma=self.prior_log_sigma, batch_size = self.batch_size, num_samples=self.num_samples,
+#             *self.args, **self.kwargs)
+#         if self.use_cuda:
+#             self.bench_pyro.cuda()
+#             self.features, self.labels = self.features.cuda(), self.labels.cuda()
+#
+#         self.bench_pyro.fit(self.features, self.labels)
+#
+#     def predict(self, features):
+#         return super().predict(features, swag_model=self.bench_pyro)
 
 
 
