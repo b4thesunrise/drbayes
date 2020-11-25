@@ -13,13 +13,17 @@ from subspace_inference.posteriors import SWAG
 from subspace_inference.posteriors.proj_model import SubspaceModel
 from subspace_inference.posteriors.elliptical_slice import elliptical_slice
 
+from subspace_inference.dataset.mini_imagenet import ImageNet, MetaImageNet
+from subspace_inference.dataset.tiered_imagenet import TieredImageNet, MetaTieredImageNet
+from subspace_inference.dataset.cifar import CIFAR100, MetaCIFAR100
+from subspace_inference.dataset.transform_cfg import transforms_options, transforms_list
+from torch.utils.data import DataLoader
 import sklearn.decomposition
 
 parser = argparse.ArgumentParser(description='Subspace ESS')
 parser.add_argument('--dir', type=str, default=None, required=True, help='training directory (default: None)')
 #parser.add_argument('--log_fname', type=str, default=None, required=True, help='file name for logging')
 
-parser.add_argument('--dataset', type=str, default='CIFAR10', help='dataset name (default: CIFAR10)')
 parser.add_argument('--data_path', type=str, default=None, required=True, metavar='PATH',
                     help='path to datasets location (default: None)')
 
@@ -48,9 +52,119 @@ parser.add_argument('--bn_subset', type=float, default=1.0, help='BN subset for 
 parser.add_argument('--seed', type=int, default=1, metavar='S', help='random seed (default: 1)')
 parser.add_argument('--no_schedule', action='store_true', help='store schedule')
 
+#from rfs
+parser.add_argument('--transform', type=str, default='A', choices=transforms_list)
+parser.add_argument('--use_trainval', action='store_true', help='use trainval set')
+parser.add_argument('--dataset', type=str, default='CIFAR10', help='dataset name (default: CIFAR10)',choices=['miniImageNet', 'tieredImageNet',
+                                                                                                              'CIFAR-FS', 'FC100', 'CIFAR10', 'CIFAR100'])
+parser.add_argument('--data_root', type=str, default='', help='path to data root')
+
+parser.add_argument('--adam', action='store_true', help='use adam optimizer')
+parser.add_argument('--learning_rate', type=float, default=0.05, help='learning rate')
+parser.add_argument('--lr_decay_epochs', type=str, default='60,80', help='where to decay lr, can be a list')
+parser.add_argument('--lr_decay_rate', type=float, default=0.1, help='decay rate for learning rate')
+parser.add_argument('--weight_decay', type=float, default=5e-4, help='weight decay')
+parser.add_argument('--momentum', type=float, default=0.9, help='momentum')
+
+parser.add_argument('--n_test_runs', type=int, default=600, metavar='N',
+                    help='Number of test runs')
+parser.add_argument('--n_ways', type=int, default=5, metavar='N',
+                    help='Number of classes for doing each classification run')
+parser.add_argument('--n_shots', type=int, default=1, metavar='N',
+                    help='Number of shots in test')
+parser.add_argument('--n_queries', type=int, default=15, metavar='N',
+                    help='Number of query in test')
+parser.add_argument('--n_aug_support_samples', default=5, type=int,
+                    help='The number of augmented samples for each meta test sample')
+parser.add_argument('--test_batch_size', type=int, default=1, metavar='test_batch_size',
+                    help='Size of test batch)')
 
 args = parser.parse_args()
 
+if args.use_trainval:
+    args.trial = args.trial + '_trainval'
+if args.dataset == 'CIFAR-FS' or args.dataset == 'FC100':
+    args.transform = 'D'
+args.data_aug = True
+
+train_partition = 'trainval' if args.use_trainval else 'train'
+if args.dataset == 'miniImageNet':
+    train_trans, test_trans = transforms_options[args.transform]
+    train_loader = DataLoader(ImageNet(args=args, partition=train_partition, transform=train_trans),
+                              batch_size=args.batch_size, shuffle=True, drop_last=True,
+                              num_workers=args.num_workers)
+    val_loader = DataLoader(ImageNet(args=args, partition='val', transform=test_trans),
+                            batch_size=args.batch_size // 2, shuffle=False, drop_last=False,
+                            num_workers=args.num_workers // 2)
+    meta_testloader = DataLoader(MetaImageNet(args=args, partition='test',
+                                              train_transform=train_trans,
+                                              test_transform=test_trans),
+                                 batch_size=args.test_batch_size, shuffle=False, drop_last=False,
+                                 num_workers=args.num_workers)
+    meta_valloader = DataLoader(MetaImageNet(args=args, partition='val',
+                                             train_transform=train_trans,
+                                             test_transform=test_trans),
+                                batch_size=args.test_batch_size, shuffle=False, drop_last=False,
+                                num_workers=args.num_workers)
+    if args.use_trainval:
+        num_classes = 80
+    else:
+        num_classes = 64
+elif args.dataset == 'tieredImageNet':
+    train_trans, test_trans = transforms_options[args.transform]
+    train_loader = DataLoader(TieredImageNet(args=args, partition=train_partition, transform=train_trans),
+                              batch_size=args.batch_size, shuffle=True, drop_last=True,
+                              num_workers=args.num_workers)
+    val_loader = DataLoader(TieredImageNet(args=args, partition='train_phase_val', transform=test_trans),
+                            batch_size=args.batch_size // 2, shuffle=False, drop_last=False,
+                            num_workers=args.num_workers // 2)
+    meta_testloader = DataLoader(MetaTieredImageNet(args=args, partition='test',
+                                                    train_transform=train_trans,
+                                                    test_transform=test_trans),
+                                 batch_size=args.test_batch_size, shuffle=False, drop_last=False,
+                                 num_workers=args.num_workers)
+    meta_valloader = DataLoader(MetaTieredImageNet(args=args, partition='val',
+                                                   train_transform=train_trans,
+                                                   test_transform=test_trans),
+                                batch_size=args.test_batch_size, shuffle=False, drop_last=False,
+                                num_workers=args.num_workers)
+    if args.use_trainval:
+        num_classes = 448
+    else:
+        num_classes = 351
+elif args.dataset == 'CIFAR-FS' or args.dataset == 'FC100':
+    train_trans, test_trans = transforms_options['D']
+
+    train_loader = DataLoader(CIFAR100(args=args, partition=train_partition, transform=train_trans),
+                              batch_size=args.batch_size, shuffle=True, drop_last=True,
+                              num_workers=args.num_workers)
+    val_loader = DataLoader(CIFAR100(args=args, partition='train', transform=test_trans),
+                            batch_size=args.batch_size // 2, shuffle=False, drop_last=False,
+                            num_workers=args.num_workers // 2)
+    bn_loader = DataLoader(CIFAR100(args=args, partition='train', transform=test_trans),
+                            batch_size=args.batch_size // 2, shuffle=False, drop_last=False,
+                            num_workers=args.num_workers // 2)
+    meta_testloader = DataLoader(MetaCIFAR100(args=args, partition='test',
+                                              train_transform=train_trans,
+                                              test_transform=test_trans),
+                                 batch_size=args.test_batch_size, shuffle=False, drop_last=False,
+                                 num_workers=args.num_workers)
+    meta_valloader = DataLoader(MetaCIFAR100(args=args, partition='val',
+                                             train_transform=train_trans,
+                                             test_transform=test_trans),
+                                batch_size=args.test_batch_size, shuffle=False, drop_last=False,
+                                num_workers=args.num_workers)
+    if args.use_trainval:
+        num_classes = 80
+    else:
+        if args.dataset == 'CIFAR-FS':
+            num_classes = 64
+        elif args.dataset == 'FC100':
+            num_classes = 60
+        else:
+            raise NotImplementedError('dataset not supported: {}'.format(args.dataset))
+else:
+    raise NotImplementedError(args.dataset)
 
 def nll(outputs, labels):
     labels = labels.astype(int)
@@ -79,29 +193,29 @@ print('Using model %s' % args.model)
 model_cfg = getattr(models, args.model)
 
 print('Loading dataset %s from %s' % (args.dataset, args.data_path))
-loaders, num_classes = data.loaders(
-    args.dataset,
-    args.data_path,
-    args.batch_size,
-    args.num_workers,
-    transform_train=model_cfg.transform_test,
-    transform_test=model_cfg.transform_test,
-    shuffle_train=False,
-    use_validation=not args.use_test,
-    split_classes=args.split_classes
-)
+# loaders, num_classes = data.loaders(
+#     args.dataset,
+#     args.data_path,
+#     args.batch_size,
+#     args.num_workers,
+#     transform_train=model_cfg.transform_test,
+#     transform_test=model_cfg.transform_test,
+#     shuffle_train=False,
+#     use_validation=not args.use_test,
+#     split_classes=args.split_classes
+# )
 
-loaders_bn, _ = data.loaders(
-    args.dataset,
-    args.data_path,
-    args.batch_size,
-    args.num_workers,
-    transform_train=model_cfg.transform_train,
-    transform_test=model_cfg.transform_test,
-    shuffle_train=True,
-    use_validation=not args.use_test,
-    split_classes=args.split_classes
-)
+# loaders_bn, _ = data.loaders(
+#     args.dataset,
+#     args.data_path,
+#     args.batch_size,
+#     args.num_workers,
+#     transform_train=model_cfg.transform_train,
+#     transform_test=model_cfg.transform_test,
+#     shuffle_train=True,
+#     use_validation=not args.use_test,
+#     split_classes=args.split_classes
+# )
 
 print('Preparing model')
 print(*model_cfg.args)
@@ -157,9 +271,9 @@ if args.curve:
         for param in model.parameters():
             param.data.copy_(v[offset:offset + param.numel()].view(param.size()).to(args.device))
             offset += param.numel()
-        utils.bn_update(loaders_bn['train'], model)
+        utils.bn_update(train_loader, model)
         print("Performance of model", i, "on the curve", end=":")
-        print(utils.eval(loaders['test'], model, losses.cross_entropy))
+        utils.mata_eval(model, meta_valloader, meta_testloader, 'curve')
 
 else:
     assert len(args.checkpoint) == 1
@@ -182,8 +296,9 @@ else:
 
     # first take as input SWA
     swag_model.set_swa()
-    utils.bn_update(loaders_bn['train'], swag_model)
-    print(utils.eval(loaders['test'], swag_model, losses.cross_entropy))
+    utils.bn_update(train_loader, swag_model)
+    # print(utils.eval(meta_testloader, swag_model, losses.cross_entropy))
+    utils.mata_eval(swag_model, meta_valloader, meta_testloader, 'SWAG:')
 
     mean, variance, cov_factor = swag_model.get_space()
 
@@ -221,7 +336,7 @@ def log_pdf(theta, subspace, model, loader, criterion, temperature, device):
     model.train()
     with torch.no_grad():
         loss = 0
-        for data, target in loader:
+        for data, target, _ in loader:
             data = data.to(device)
             target = target.to(device)
             batch_loss, _, _ = criterion(model, data, target)
@@ -234,14 +349,14 @@ def oracle(theta):
         theta,
         subspace=subspace,
         model=model,
-        loader=loaders['train'],
+        loader=train_loader,
         criterion=losses.cross_entropy,
         temperature=args.temperature,
         device=args.device
     )
-
-ens_predictions = np.zeros((len(loaders['test'].dataset), num_classes))
-targets = np.zeros((len(loaders['test'].dataset), num_classes))
+query_length = len(meta_testloader.dataset) * len(meta_testloader.dataset[0][-1])
+ens_predictions = np.zeros((query_length, args.n_ways))
+targets = np.zeros((query_length , args.n_ways))
 
 columns = ['iter', 'log_prob', 'acc', 'nll', 'time']
 
@@ -261,8 +376,9 @@ for i in range(args.num_samples):
         param.data.copy_(w[offset:offset + param.numel()].view(param.size()).to(args.device))
         offset += param.numel()
 
-    utils.bn_update(loaders_bn['train'], model, subset=args.bn_subset)
-    pred_res = utils.predict(loaders['test'], model)
+    utils.bn_update(train_loader, model, subset=args.bn_subset)
+    pred_res = utils.predict(meta_testloader, model)
+    utils.mata_eval(model, meta_valloader, meta_testloader, 'SWAG-ess')
     ens_predictions += pred_res['predictions']
     targets = pred_res['targets']
     time_sample = time.time() - time_sample

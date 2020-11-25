@@ -304,30 +304,9 @@ def eval(loader, model, criterion, cuda=True, regression=False, verbose=False):
     }
 
 
-def predict(loader, model, verbose=False):
-    predictions = list()
-    targets = list()
+def predict(loader, model, verbose=False, classifier='LR', use_logit=True):
+    return meta_test(model, loader, classifier=classifier, use_logit=use_logit, need_pred=True)
 
-    model.eval()
-
-    if verbose:
-        loader = tqdm.tqdm(loader)
-
-    offset = 0
-    with torch.no_grad():
-        for input, target, _ in loader:
-            input = input.cuda(non_blocking=True)
-            output = model(input)
-
-            batch_size = input.size(0)
-            predictions.append(F.softmax(output, dim=1).cpu().numpy())
-            targets.append(target.numpy())
-            offset += batch_size
-
-    return {
-        'predictions': np.vstack(predictions),
-        'targets': np.concatenate(targets)
-    }
 
 def mata_eval(model, meta_valloader, meta_testloader, status, classifier='LR'):
     # evalation
@@ -415,7 +394,7 @@ def bn_update(loader, model, verbose=False, subset=None, **kwargs):
         if verbose:
             loader = tqdm.tqdm(loader, total=num_batches)
 
-        for input, _ in loader:
+        for input, _, _1 in loader:
             input = input.cuda(non_blocking=True)
             input_var = torch.autograd.Variable(input)
             b = input_var.data.size(0)

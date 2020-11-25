@@ -14,6 +14,7 @@ from sklearn.ensemble import RandomForestClassifier
 
 from sklearn.pipeline import make_pipeline
 from sklearn.preprocessing import StandardScaler
+import torch.nn.functional as F
 
 
 def mean_confidence_interval(data, confidence=0.95):
@@ -30,9 +31,13 @@ def normalize(x):
     return out
 
 
-def meta_test(net, testloader, use_logit=True, is_norm=True, classifier='LR', opt=None):
+def meta_test(net, testloader, use_logit=True, is_norm=True, classifier='LR', opt=None, need_pred=False):
     net = net.eval()
     acc = []
+    predictions = list()
+    targets = list()
+
+    offset = 0
 
     with torch.no_grad():
         for idx, data in tqdm(enumerate(testloader)):
@@ -72,6 +77,8 @@ def meta_test(net, testloader, use_logit=True, is_norm=True, classifier='LR', op
                                          multi_class='multinomial')
                 clf.fit(support_features, support_ys)
                 query_ys_pred = clf.predict(query_features)
+                if need_pred:
+                    query_ys_pred_score = clf.decision_function(query_features)
             elif classifier == 'SVM':
                 clf = make_pipeline(StandardScaler(), SVC(gamma='auto',
                                                           C=1,
@@ -87,9 +94,17 @@ def meta_test(net, testloader, use_logit=True, is_norm=True, classifier='LR', op
                 query_ys_pred = Proto(support_features, support_ys, query_features, opt)
             else:
                 raise NotImplementedError('classifier not supported: {}'.format(classifier))
+            if need_pred:
+                predictions.append(F.softmax(torch.from_numpy(query_ys_pred_score), dim=1).cpu().numpy())
+                targets.append(query_ys)
 
             acc.append(metrics.accuracy_score(query_ys, query_ys_pred))
 
+    if need_pred:
+        return {
+        'predictions': np.vstack(predictions),
+        'targets': np.concatenate(targets)
+    }
     return mean_confidence_interval(acc)
 
 

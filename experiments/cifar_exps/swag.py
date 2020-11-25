@@ -21,10 +21,6 @@ torch.multiprocessing.set_sharing_strategy('file_system')
 parser = argparse.ArgumentParser(description='SGD/SWA training')
 parser.add_argument('--dir', type=str, default=None, required=True, help='training directory (default: None)')
 
-parser.add_argument('--dataset', type=str, default='CIFAR10', help='dataset name (default: CIFAR10)',choices=['miniImageNet', 'tieredImageNet',
-                                                                            'CIFAR-FS', 'FC100', 'CIFAR10', 'CIFAR100'])
-parser.add_argument('--data_root', type=str, default='', help='path to data root')
-parser.add_argument('--use_trainval', action='store_true', help='use trainval set')
 parser.add_argument('--data_path', type=str, default=None, required=True, metavar='PATH',
                     help='path to datasets location (default: None)')
 parser.add_argument('--use_test', dest='use_test', action='store_true', help='use test dataset instead of validation (default: False)')
@@ -66,7 +62,11 @@ parser.add_argument('--subspace', choices=['covariance', 'pca', 'freq_dir'], def
 #from rfs
 
 parser.add_argument('--transform', type=str, default='A', choices=transforms_list)
+parser.add_argument('--use_trainval', action='store_true', help='use trainval set')
 
+parser.add_argument('--dataset', type=str, default='CIFAR10', help='dataset name (default: CIFAR10)',choices=['miniImageNet', 'tieredImageNet',
+                                                                                                              'CIFAR-FS', 'FC100', 'CIFAR10', 'CIFAR100'])
+parser.add_argument('--data_root', type=str, default='', help='path to data root')
 # meta setting
 parser.add_argument('--adam', action='store_true', help='use adam optimizer')
 parser.add_argument('--learning_rate', type=float, default=0.05, help='learning rate')
