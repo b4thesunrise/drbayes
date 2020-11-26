@@ -418,7 +418,7 @@ def predictions(test_loader, model, seed=None, cuda=True, regression=False, **kw
     #model.eval()
     preds = []
     targets = []
-    for input, target in test_loader:
+    for input, target, _ in test_loader:
         if seed is not None:
             torch.manual_seed(seed)
         if cuda:

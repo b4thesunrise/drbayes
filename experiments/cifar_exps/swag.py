@@ -315,10 +315,10 @@ for epoch in range(start_epoch, args.epochs):
         test_res = {'loss': None, 'accuracy': None}
 
     if args.swag and (epoch + 1) > args.swag_start and (epoch + 1 - args.swag_start) % args.swag_c_epochs == 0:
-        #sgd_preds, sgd_targets = utils.predictions(val_loader, model)
-        sgd_res = utils.predict(val_loader, model)
-        sgd_preds = sgd_res["predictions"]
-        sgd_targets = sgd_res["targets"]
+        sgd_preds, sgd_targets = utils.predictions(val_loader, model)
+        # sgd_res = utils.predict(val_loader, model)
+        # sgd_preds = sgd_res["predictions"]
+        # sgd_targets = sgd_res["targets"]
         # print("updating sgd_ens")
         if sgd_ens_preds is None:
             sgd_ens_preds = sgd_preds.copy()
