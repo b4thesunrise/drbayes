@@ -3,6 +3,7 @@ import torch
 import torch.nn.functional as F
 from torch.distributions import Bernoulli
 
+__all__ = ['resnet12','resnet18','resnet24','resnet50','resnet101']
 
 def conv3x3(in_planes, out_planes, stride=1):
     """3x3 convolution with padding"""
@@ -169,7 +170,10 @@ class ResNet(nn.Module):
         self.keep_avg_pool = avg_pool
         self.dropout = nn.Dropout(p=1 - self.keep_prob, inplace=False)
         self.drop_rate = drop_rate
-        
+
+        self.num_classes = num_classes
+        if self.num_classes > 0:
+            self.classifier = nn.Linear(640, self.num_classes)
         for m in self.modules():
             if isinstance(m, nn.Conv2d):
                 nn.init.kaiming_normal_(m.weight, mode='fan_out', nonlinearity='leaky_relu')
@@ -177,9 +181,6 @@ class ResNet(nn.Module):
                 nn.init.constant_(m.weight, 1)
                 nn.init.constant_(m.bias, 0)
 
-        self.num_classes = num_classes
-        if self.num_classes > 0:
-            self.classifier = nn.Linear(640, self.num_classes)
 
     def _make_layer(self, block, n_block, planes, stride=1, drop_rate=0.0, drop_block=False, block_size=1):
         downsample = None
@@ -230,41 +231,62 @@ class ResNet(nn.Module):
             return x
 
 
-def resnet12(keep_prob=1.0, avg_pool=False, **kwargs):
-    """Constructs a ResNet-12 model.
-    """
-    model = ResNet(BasicBlock, [1, 1, 1, 1], keep_prob=keep_prob, avg_pool=avg_pool, **kwargs)
-    return model
+# def resnet12(keep_prob=1.0, avg_pool=False, **kwargs):
+#     """Constructs a ResNet-12 model.
+#     """
+#     model = ResNet(BasicBlock, [1, 1, 1, 1], keep_prob=keep_prob, avg_pool=avg_pool, **kwargs)
+#     return model
+
+class resnet12:
+    base = ResNet
+    args = [BasicBlock, [1, 1, 1, 1]]
+    kwargs = {'keep_prob':1.0, 'avg_pool':True}
+
+class resnet18:
+    base = ResNet
+    args = [BasicBlock, [1, 1, 2, 2]]
+    kwargs = {'keep_prob':1.0, 'avg_pool':True}
+    # avg_pool = True, drop_rate = 0.1, dropblock_size = 5, num_classes = n_cls
+# def resnet18(keep_prob=1.0, avg_pool=False, **kwargs):
+#     """Constructs a ResNet-18 model.
+#     """
+#     model = ResNet(BasicBlock, [1, 1, 2, 2], keep_prob=keep_prob, avg_pool=avg_pool, **kwargs)
+#     return model
+# 
+
+class resnet24:
+    base = ResNet
+    args = [BasicBlock, [2, 2, 2, 2]]
+    kwargs = {'keep_prob':1.0, 'avg_pool':True}
+class resnet50:
+    base = ResNet
+    args = [BasicBlock, [3, 4, 6, 3]]
+    kwargs = {'keep_prob':1.0, 'avg_pool':True}
+class resnet101:
+    base = ResNet
+    args = [BasicBlock, [3, 4, 23, 3]]
+    kwargs = {'keep_prob':1.0, 'avg_pool':True}
+# def resnet24(keep_prob=1.0, avg_pool=False, **kwargs):
+#     """Constructs a ResNet-24 model.
+#     """
+#     model = ResNet(BasicBlock, [2, 2, 2, 2], keep_prob=keep_prob, avg_pool=avg_pool, **kwargs)
+#     return model
 
 
-def resnet18(keep_prob=1.0, avg_pool=False, **kwargs):
-    """Constructs a ResNet-18 model.
-    """
-    model = ResNet(BasicBlock, [1, 1, 2, 2], keep_prob=keep_prob, avg_pool=avg_pool, **kwargs)
-    return model
+# def resnet50(keep_prob=1.0, avg_pool=False, **kwargs):
+#     """Constructs a ResNet-50 model.
+#     indeed, only (3 + 4 + 6 + 3) * 3 + 1 = 49 layers
+#     """
+#     model = ResNet(BasicBlock, [3, 4, 6, 3], keep_prob=keep_prob, avg_pool=avg_pool, **kwargs)
+#     return model
 
 
-def resnet24(keep_prob=1.0, avg_pool=False, **kwargs):
-    """Constructs a ResNet-24 model.
-    """
-    model = ResNet(BasicBlock, [2, 2, 2, 2], keep_prob=keep_prob, avg_pool=avg_pool, **kwargs)
-    return model
-
-
-def resnet50(keep_prob=1.0, avg_pool=False, **kwargs):
-    """Constructs a ResNet-50 model.
-    indeed, only (3 + 4 + 6 + 3) * 3 + 1 = 49 layers
-    """
-    model = ResNet(BasicBlock, [3, 4, 6, 3], keep_prob=keep_prob, avg_pool=avg_pool, **kwargs)
-    return model
-
-
-def resnet101(keep_prob=1.0, avg_pool=False, **kwargs):
-    """Constructs a ResNet-101 model.
-    indeed, only (3 + 4 + 23 + 3) * 3 + 1 = 100 layers
-    """
-    model = ResNet(BasicBlock, [3, 4, 23, 3], keep_prob=keep_prob, avg_pool=avg_pool, **kwargs)
-    return model
+# def resnet101(keep_prob=1.0, avg_pool=False, **kwargs):
+#     """Constructs a ResNet-101 model.
+#     indeed, only (3 + 4 + 23 + 3) * 3 + 1 = 100 layers
+#     """
+#     model = ResNet(BasicBlock, [3, 4, 23, 3], keep_prob=keep_prob, avg_pool=avg_pool, **kwargs)
+#     return model
 
 
 def seresnet12(keep_prob=1.0, avg_pool=False, **kwargs):
