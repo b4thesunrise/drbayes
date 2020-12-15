@@ -7,7 +7,7 @@ from .subspaces import Subspace
 class SWAG(torch.nn.Module):
 
     def __init__(self, base, subspace_type,
-                 subspace_kwargs=None, var_clamp=1e-6, *args, **kwargs):
+                 subspace_kwargs=None, var_clamp=1e-6, args=None, kwargs=None):
         super(SWAG, self).__init__()
 
         self.base_model = base(*args, **kwargs)
