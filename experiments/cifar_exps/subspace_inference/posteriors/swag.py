@@ -6,11 +6,11 @@ from .subspaces import Subspace
 
 class SWAG(torch.nn.Module):
 
-    def __init__(self, base, subspace_type,
+    def __init__(self, base, subspace_type, num_classes,
                  subspace_kwargs=None, var_clamp=1e-6, args=None, kwargs=None):
         super(SWAG, self).__init__()
 
-        self.base_model = base(*args, **kwargs)
+        self.base_model = base(*args,  num_classes=num_classes, **kwargs)
         self.num_parameters = sum(param.numel() for param in self.base_model.parameters())
 
         self.register_buffer('mean', torch.zeros(self.num_parameters))

@@ -9,3 +9,4 @@ from .vi_model import *
 from .vinf_model import *
 from .realnvp import *
 from .proj_model import *
+from .laplace import KFACLaplace

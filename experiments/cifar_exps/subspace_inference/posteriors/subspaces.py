@@ -45,7 +45,7 @@ class Subspace(torch.nn.Module, metaclass=abc.ABCMeta):
 
 @Subspace.register_subclass('random')
 class RandomSpace(Subspace):
-    def __init__(self, num_parameters, rank=20, method='dense'):
+    def __init__(self, num_parameters, rank=20, max_rank=20, method='dense', pca_rank=20):
         assert method in ['dense', 'fastfood']
 
         super(RandomSpace, self).__init__()
@@ -63,7 +63,7 @@ class RandomSpace(Subspace):
     # random subspace is independent of data
     def collect_vector(self, vector):
         pass
-    
+
     def get_space(self):
         return self.subspace
 

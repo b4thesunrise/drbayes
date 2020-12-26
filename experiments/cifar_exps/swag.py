@@ -63,6 +63,7 @@ parser.add_argument('--subspace', choices=['covariance', 'pca', 'freq_dir'], def
 
 parser.add_argument('--transform', type=str, default='A', choices=transforms_list)
 parser.add_argument('--use_trainval', action='store_true', help='use trainval set')
+parser.add_argument('--lr_step', action='store_true', help='use trainval set')
 
 parser.add_argument('--dataset', type=str, default='CIFAR10', help='dataset name (default: CIFAR10)',choices=['miniImageNet', 'tieredImageNet',
                                                                                                               'CIFAR-FS', 'FC100', 'CIFAR10', 'CIFAR100'])
@@ -219,8 +220,8 @@ else:
 if args.swag:
     print('SWAG training')
     swag_model = SWAG(model_cfg.base,
-                    subspace_type=args.subspace, subspace_kwargs={'max_rank': args.max_num_models},
-                    *model_cfg.args, num_classes=num_classes, **model_cfg.kwargs)
+                    args.subspace, subspace_kwargs={'max_rank': args.max_num_models}, num_classes=num_classes,
+             args=model_cfg.args,  kwargs=model_cfg.kwargs)
     swag_model.to(args.device)
 else:
     print('SGD training')
@@ -254,16 +255,19 @@ elif args.loss == 'adv_CE':
 # optimizer
 if args.adam:
     optimizer = torch.optim.Adam(model.parameters(),
-                                 lr=args.learning_rate,
+                                 lr=args.lr_init,
                                  weight_decay=0.0005)
 else:
     optimizer = torch.optim.SGD(model.parameters(),
-                          lr=args.learning_rate,
+                          lr=args.lr_init,
                           momentum=args.momentum,
                           weight_decay=args.weight_decay)
 
 # criterion = torch.nn.CrossEntropyLoss()
-
+iterations = args.lr_decay_epochs.split(',')
+args.lr_decay_epochs = list([])
+for it in iterations:
+    args.lr_decay_epochs.append(int(it))
 start_epoch = 0
 if args.resume is not None:
     print('Resume training from %s' % args.resume)
@@ -296,9 +300,12 @@ n_ensembled = 0.
 for epoch in range(start_epoch, args.epochs):
     time_ep = time.time()
 
-    if not args.no_schedule:
+    if args.lr_step:
+        new_lr = utils.adjust_learning_rate_lrstep(epoch, args, optimizer)
+        lr = new_lr
+    elif not args.no_schedule:
         lr = schedule(epoch)
-        utils.adjust_learning_rate(optimizer, lr)
+        utils.adjust_learning_rate(epoch, optimizer, lr)
     else:
         lr = args.lr_init
     
@@ -328,7 +335,8 @@ for epoch in range(start_epoch, args.epochs):
         n_ensembled += 1
         swag_model.collect_model(model)
         if epoch == 0 or epoch % args.eval_freq == args.eval_freq - 1 or epoch == args.epochs - 1:
-            swag_model.set_swa()
+            # swag_model.set_swa()
+            swag_model.sample(0.0)
             utils.bn_update(train_loader, swag_model)
             swag_res = utils.eval(val_loader, swag_model, criterion)
             utils.mata_eval(swag_model, meta_valloader, meta_testloader, 'SWAG', classifier='LR')

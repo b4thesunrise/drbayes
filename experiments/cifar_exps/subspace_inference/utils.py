@@ -74,13 +74,15 @@ class AverageMeter(object):
         self.avg = self.sum / self.count
 
 
-def adjust_learning_rate(epoch, opt, optimizer):
+def adjust_learning_rate_lrstep(epoch, opt, optimizer):
     """Sets the learning rate to the initial LR decayed by decay rate every steep step"""
     steps = np.sum(epoch > np.asarray(opt.lr_decay_epochs))
     if steps > 0:
-        new_lr = opt.learning_rate * (opt.lr_decay_rate ** steps)
+        new_lr = opt.lr_init * (opt.lr_decay_rate ** steps)
         for param_group in optimizer.param_groups:
             param_group['lr'] = new_lr
+        return new_lr
+    return opt.lr_init
 
 
 def accuracy(output, target, topk=(1,)):
