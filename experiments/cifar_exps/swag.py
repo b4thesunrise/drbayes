@@ -71,7 +71,7 @@ parser.add_argument('--data_root', type=str, default='', help='path to data root
 # meta setting
 parser.add_argument('--adam', action='store_true', help='use adam optimizer')
 parser.add_argument('--learning_rate', type=float, default=0.05, help='learning rate')
-parser.add_argument('--lr_decay_epochs', type=str, default='60,80', help='where to decay lr, can be a list')
+parser.add_argument('--lr_decay_epochs', type=str, default='70,90,100', help='where to decay lr, can be a list')
 parser.add_argument('--lr_decay_rate', type=float, default=0.1, help='decay rate for learning rate')
 parser.add_argument('--weight_decay', type=float, default=5e-4, help='weight decay')
 parser.add_argument('--momentum', type=float, default=0.9, help='momentum')
@@ -227,7 +227,8 @@ else:
     print('SGD training')
 
 
-def schedule(epoch):
+def schedule(epoch, args):
+    steps = np.sum(epoch > np.asarray(args.lr_decay_epochs))
     t = (epoch) / (args.swag_start if args.swag else args.epochs)
     lr_ratio = args.swag_lr / args.lr_init if args.swag else 0.01
     if t <= 0.5:
@@ -236,6 +237,8 @@ def schedule(epoch):
         factor = 1.0 - (1.0 - lr_ratio) * (t - 0.5) / 0.4
     else:
         factor = lr_ratio
+    if args.lr_step:
+        factor = args.lr_decay_rate ** steps
     return args.lr_init * factor
 
 # use a slightly modified loss function that allows input of model 
@@ -300,12 +303,9 @@ n_ensembled = 0.
 for epoch in range(start_epoch, args.epochs):
     time_ep = time.time()
 
-    if args.lr_step:
-        new_lr = utils.adjust_learning_rate_lrstep(epoch, args, optimizer)
-        lr = new_lr
-    elif not args.no_schedule:
-        lr = schedule(epoch)
-        utils.adjust_learning_rate(epoch, optimizer, lr)
+    if not args.no_schedule:
+        lr = schedule(epoch, args)
+        utils.adjust_learning_rate(optimizer, lr)
     else:
         lr = args.lr_init
     

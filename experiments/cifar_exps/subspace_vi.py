@@ -72,14 +72,6 @@ parser.add_argument('--use_trainval', action='store_true', help='use trainval se
 parser.add_argument('--dataset', type=str, default='CIFAR10', help='dataset name (default: CIFAR10)',choices=['miniImageNet', 'tieredImageNet',
                                                                                                               'CIFAR-FS', 'FC100', 'CIFAR10', 'CIFAR100'])
 parser.add_argument('--data_root', type=str, default='', help='path to data root')
-
-parser.add_argument('--adam', action='store_true', help='use adam optimizer')
-parser.add_argument('--learning_rate', type=float, default=0.05, help='learning rate')
-parser.add_argument('--lr_decay_epochs', type=str, default='60,80', help='where to decay lr, can be a list')
-parser.add_argument('--lr_decay_rate', type=float, default=0.1, help='decay rate for learning rate')
-parser.add_argument('--weight_decay', type=float, default=5e-4, help='weight decay')
-parser.add_argument('--momentum', type=float, default=0.9, help='momentum')
-
 parser.add_argument('--n_test_runs', type=int, default=600, metavar='N',
                     help='Number of test runs')
 parser.add_argument('--n_ways', type=int, default=5, metavar='N',
@@ -236,24 +228,38 @@ print(*model_cfg.args)
 
 swag_model = SWAG(
     model_cfg.base,
-    num_classes=num_classes,
     subspace_type='pca',
     subspace_kwargs={
         'max_rank': args.max_rank,
         'pca_rank': args.rank,
     },
-    *model_cfg.args,
-    **model_cfg.kwargs
+    num_classes=num_classes,
+    args=model_cfg.args, kwargs=model_cfg.kwargs
 )
+
 swag_model.to(args.device)
 
 print('Loading: %s' % args.checkpoint)
 ckpt = torch.load(args.checkpoint)
 swag_model.load_state_dict(ckpt['state_dict'], strict=False)
 
-swag_model.set_swa()
-#print("SWA:", utils.eval(loaders["test"], swag_model, criterion=losses.cross_entropy))
-utils.mata_eval(swag_model, meta_valloader, meta_testloader, 'SWAG:')
+# # first take as input SWA
+# swag_model.set_swa()
+# utils.bn_update(train_loader, swag_model)
+# # print(utils.eval(meta_testloader, swag_model, losses.cross_entropy))
+# utils.mata_eval(swag_model, meta_valloader, meta_testloader, 'SWA:')
+# swag_model.sample(0.0)
+# utils.bn_update(train_loader, swag_model)
+# # print(utils.eval(meta_testloader, swag_model, losses.cross_entropy))
+# utils.mata_eval(swag_model, meta_valloader, meta_testloader, 'SWAG-0.0:')
+# swag_model.sample(0.5)
+# utils.bn_update(train_loader, swag_model)
+# # print(utils.eval(meta_testloader, swag_model, losses.cross_entropy))
+# utils.mata_eval(swag_model, meta_valloader, meta_testloader, 'SWAG-0.5:')
+# swag_model.sample(1.0)
+# utils.bn_update(train_loader, swag_model)
+# # print(utils.eval(meta_testloader, swag_model, losses.cross_entropy))
+# utils.mata_eval(swag_model, meta_valloader, meta_testloader, 'SWAG-1.0:')
 
 mean, var, cov_factor = swag_model.get_space()
 
@@ -285,8 +291,7 @@ vi_model = VIModel(
     num_classes=num_classes,
     base=model_cfg.base,
     with_mu=not args.no_mu,
-    *model_cfg.args,
-    **model_cfg.kwargs
+    args=model_cfg.args, kwargs=model_cfg.kwargs
 )
 
 vi_model = vi_model.cuda()
@@ -345,7 +350,10 @@ num_samples = args.num_samples
 
 query_length = len(meta_testloader.dataset) * len(meta_testloader.dataset[0][-1])
 ens_predictions = np.zeros((query_length, args.n_ways))
+ens_predictions_feats = np.zeros((query_length, args.n_ways))
 targets = np.zeros((query_length , args.n_ways))
+targets_feats = np.zeros((query_length , args.n_ways))
+
 
 
 #printf, logfile = utils.get_logging_print(os.path.join(args.dir, args.log_fname + '-%s.txt'))
@@ -364,14 +372,20 @@ for i in range(num_samples):
 
 
     pred_res = utils.predict(meta_testloader, eval_model)
+    pred_res_feats = utils.predict(meta_testloader, eval_model, use_logit=False)
     utils.mata_eval(eval_model, meta_valloader, meta_testloader, 'SWAG-vi')
     ens_predictions += pred_res['predictions']
+    ens_predictions_feats += pred_res_feats['predictions']
     targets = pred_res['targets']
+    targets_feats = pred_res_feats['targets']
 
     values = ['%3d/%3d' % (i + 1, num_samples),
               np.mean(np.argmax(ens_predictions, axis=1) == targets),
               nll(ens_predictions / (i + 1), targets)]
-    table = tabulate.tabulate([values], columns, tablefmt='simple', floatfmt='8.4f')
+    values_feats = ['%3d/%3d' % (i + 1, num_samples),
+              np.mean(np.argmax(ens_predictions_feats, axis=1) == targets_feats),
+              nll(ens_predictions_feats / (i + 1), targets_feats)]
+    table = tabulate.tabulate([values] + [values_feats], columns, tablefmt='simple', floatfmt='8.4f')
     if i == 0:
         print(table)
     else:
@@ -385,10 +399,19 @@ print("Ensemble Accuracy:", ens_acc)
 
 print("Ensemble Acc:", ens_acc)
 print("Ensemble NLL:", ens_nll)
+
+ens_predictions_feats /= num_samples
+ens_acc_feats = np.mean(np.argmax(ens_predictions_feats, axis=1) == targets_feats)
+ens_nll_feats = nll(ens_predictions_feats, targets_feats)
+print("Ensemble NLL Feats:", ens_nll_feats)
+print("Ensemble Accuracy Feats:", ens_acc_feats)
+
+print("Ensemble Acc Feats:", ens_acc_feats)
+print("Ensemble NLL Feats:", ens_nll_feats)
 np.savez(
     os.path.join(args.dir, 'ens.npz'),
     seed=args.seed,
-    ens_predictions=ens_predictions,
+    ens_predictions=ens_predictions_feats,
     targets=targets,
     ens_acc=ens_acc,
     ens_nll=ens_nll

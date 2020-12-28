@@ -74,13 +74,11 @@ class AverageMeter(object):
         self.avg = self.sum / self.count
 
 
-def adjust_learning_rate_lrstep(epoch, opt, optimizer):
+def adjust_learning_rate_lrstep(epoch, opt):
     """Sets the learning rate to the initial LR decayed by decay rate every steep step"""
     steps = np.sum(epoch > np.asarray(opt.lr_decay_epochs))
     if steps > 0:
         new_lr = opt.lr_init * (opt.lr_decay_rate ** steps)
-        for param_group in optimizer.param_groups:
-            param_group['lr'] = new_lr
         return new_lr
     return opt.lr_init
 
@@ -230,11 +228,12 @@ def train_epoch(loader, model, criterion, optimizer, epoch, cuda=True, regressio
             print('Train Epoch: [{0}][{1}/{2}]\t'
                   'Time {batch_time.val:.3f} ({batch_time.avg:.3f})\t'
                   'Data {data_time.val:.3f} ({data_time.avg:.3f})\t'
+                  'Lr {lr}\t'
                   'Loss {loss.val:.4f} ({loss.avg:.4f})\t'
                   'Acc@1 {top1.val:.3f} ({top1.avg:.3f})\t'
                   'Acc@5 {top5.val:.3f} ({top5.avg:.3f})'.format(
                 epoch + 1, i, len(loader), batch_time=batch_time,
-                data_time=data_time, loss=losses, top1=top1, top5=top5))
+                data_time=data_time, lr=optimizer.defaults['lr'], loss=losses, top1=top1, top5=top5))
             sys.stdout.flush()
 
     print(' * Train Acc@1 {top1.avg:.3f} Acc@5 {top5.avg:.3f}'

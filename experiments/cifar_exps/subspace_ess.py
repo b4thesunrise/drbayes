@@ -279,15 +279,15 @@ else:
     assert len(args.checkpoint) == 1
     swag_model = SWAG(
         model_cfg.base,
-        num_classes=num_classes,
         subspace_type='pca',
         subspace_kwargs={
             'max_rank': 20,
             'pca_rank': args.rank,
         },
-        *model_cfg.args,
-        **model_cfg.kwargs
+        num_classes=num_classes,
+        args=model_cfg.args,  kwargs=model_cfg.kwargs
     )
+
     swag_model.to(args.device)
 
     print('Loading: %s' % args.checkpoint[0])
@@ -368,7 +368,9 @@ def oracle(theta):
     )
 query_length = len(meta_testloader.dataset) * len(meta_testloader.dataset[0][-1])
 ens_predictions = np.zeros((query_length, args.n_ways))
+ens_predictions_feats = np.zeros((query_length, args.n_ways))
 targets = np.zeros((query_length , args.n_ways))
+targets_feats = np.zeros((query_length , args.n_ways))
 
 columns = ['iter', 'log_prob', 'acc', 'nll', 'time']
 
@@ -390,16 +392,25 @@ for i in range(args.num_samples):
 
     utils.bn_update(train_loader, model, subset=args.bn_subset)
     pred_res = utils.predict(meta_testloader, model)
+    pred_res_feats = utils.predict(meta_testloader, model, use_logit=False)
     utils.mata_eval(model, meta_valloader, meta_testloader, 'SWAG-ess')
     ens_predictions += pred_res['predictions']
+    ens_predictions_feats += pred_res_feats['predictions']
     targets = pred_res['targets']
+    targets_feats = pred_res_feats['targets']
+
     time_sample = time.time() - time_sample
     values = ['%3d/%3d' % (i + 1, args.num_samples),
               log_prob,
               np.mean(np.argmax(ens_predictions, axis=1) == targets),
               nll(ens_predictions / (i + 1), targets),
               time_sample]
-    table = tabulate.tabulate([values], columns, tablefmt='simple', floatfmt='8.4f')
+    values_feats = ['%3d/%3d' % (i + 1, args.num_samples),
+              log_prob,
+              np.mean(np.argmax(ens_predictions_feats, axis=1) == targets_feats),
+              nll(ens_predictions_feats / (i + 1), targets_feats),
+              time_sample]
+    table = tabulate.tabulate([values] + [values_feats], columns, tablefmt='simple', floatfmt='8.4f')
     if i == 0:
         print(table)
     else:
@@ -413,13 +424,22 @@ print("Ensemble Accuracy:", ens_acc)
 
 print("Ensemble Acc:", ens_acc)
 print("Ensemble NLL:", ens_nll)
+
+ens_predictions_feats /= args.num_samples
+ens_acc_feats = np.mean(np.argmax(ens_predictions_feats, axis=1) == targets_feats)
+ens_nll_feats = nll(ens_predictions_feats, targets_feats)
+print("Ensemble NLL Feats:", ens_nll_feats)
+print("Ensemble Accuracy Feats:", ens_acc_feats)
+
+print("Ensemble Acc Feats:", ens_acc_feats)
+print("Ensemble NLL Feats:", ens_nll_feats)
 if not os.path.exists(args.dir):
     os.mkdir(args.dir)
 np.savez(
     os.path.join(args.dir, 'ens.npz'),
     seed=args.seed,
     samples=samples,
-    ens_predictions=ens_predictions,
+    ens_predictions=ens_predictions_feats,
     targets=targets,
     ens_acc=ens_acc,
     ens_nll=ens_nll
