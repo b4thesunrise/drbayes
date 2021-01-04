@@ -233,7 +233,7 @@ def train_epoch(loader, model, criterion, optimizer, epoch, cuda=True, regressio
                   'Acc@1 {top1.val:.3f} ({top1.avg:.3f})\t'
                   'Acc@5 {top5.val:.3f} ({top5.avg:.3f})'.format(
                 epoch + 1, i, len(loader), batch_time=batch_time,
-                data_time=data_time, lr=optimizer.defaults['lr'], loss=losses, top1=top1, top5=top5))
+                data_time=data_time, lr=optimizer.param_groups[0]['lr'], loss=losses, top1=top1, top5=top5))
             sys.stdout.flush()
 
     print(' * Train Acc@1 {top1.avg:.3f} Acc@5 {top5.avg:.3f}'

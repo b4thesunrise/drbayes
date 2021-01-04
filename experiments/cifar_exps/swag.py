@@ -64,6 +64,7 @@ parser.add_argument('--subspace', choices=['covariance', 'pca', 'freq_dir'], def
 parser.add_argument('--transform', type=str, default='A', choices=transforms_list)
 parser.add_argument('--use_trainval', action='store_true', help='use trainval set')
 parser.add_argument('--lr_step', action='store_true', help='use trainval set')
+parser.add_argument('--swa_lr_step', action='store_true', help='use trainval set')
 
 parser.add_argument('--dataset', type=str, default='CIFAR10', help='dataset name (default: CIFAR10)',choices=['miniImageNet', 'tieredImageNet',
                                                                                                               'CIFAR-FS', 'FC100', 'CIFAR10', 'CIFAR100'])
@@ -71,7 +72,8 @@ parser.add_argument('--data_root', type=str, default='', help='path to data root
 # meta setting
 parser.add_argument('--adam', action='store_true', help='use adam optimizer')
 parser.add_argument('--learning_rate', type=float, default=0.05, help='learning rate')
-parser.add_argument('--lr_decay_epochs', type=str, default='70,90,100', help='where to decay lr, can be a list')
+# parser.add_argument('--lr_decay_epochs', type=str, default='70,90,100', help='where to decay lr, can be a list')
+parser.add_argument('--lr_decay_epochs', type=str, default='60,80', help='where to decay lr, can be a list')
 parser.add_argument('--lr_decay_rate', type=float, default=0.1, help='decay rate for learning rate')
 parser.add_argument('--weight_decay', type=float, default=5e-4, help='weight decay')
 parser.add_argument('--momentum', type=float, default=0.9, help='momentum')
@@ -237,9 +239,9 @@ def schedule(epoch, args):
         factor = 1.0 - (1.0 - lr_ratio) * (t - 0.5) / 0.4
     else:
         factor = lr_ratio
-    if args.lr_step:
-        factor = args.lr_decay_rate ** steps
-    return args.lr_init * factor
+    factor = factor if args.swa_lr_step else 1
+    lr_factor = args.lr_decay_rate ** steps if args.lr_step else 1
+    return args.lr_init * factor * lr_factor
 
 # use a slightly modified loss function that allows input of model 
 if args.loss == 'CE':
