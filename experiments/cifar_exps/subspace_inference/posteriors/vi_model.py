@@ -5,11 +5,11 @@ from subspace_inference import set_weights_old as set_weights
 
 
 class VIModel(torch.nn.Module):
-    def __init__(self, base, subspace, num_classes, init_inv_softplus_sigma=-3.0,
-                 prior_log_sigma=3.0, eps=1e-6, with_mu=True, args=None, kwargs=None):
+    def __init__(self, base, subspace, init_inv_softplus_sigma=-3.0, 
+                 prior_log_sigma=3.0, eps=1e-6, with_mu=True, *args, **kwargs):
         super(VIModel, self).__init__()
 
-        self.base_model = base(*args,  num_classes=num_classes, **kwargs)
+        self.base_model = base(*args, **kwargs)
         self.base_params = extract_parameters(self.base_model)
 
         self.subspace = subspace

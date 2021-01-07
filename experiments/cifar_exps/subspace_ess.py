@@ -10,7 +10,8 @@ import numpy as np
 
 from subspace_inference import data, models, utils, losses
 from subspace_inference.posteriors import SWAG
-from subspace_inference.posteriors.proj_model import SubspaceModel
+from subspace_inference.posteriors.swag_pca import SWAG as SWAGPCA
+from subspace_inference.posteriors.proj_model import SubspaceModel, MNPCA_SubspaceModel, MNPCA_SubspaceModel_spec
 from subspace_inference.posteriors.elliptical_slice import elliptical_slice
 
 from subspace_inference.dataset.mini_imagenet import ImageNet, MetaImageNet
@@ -78,6 +79,13 @@ parser.add_argument('--n_aug_support_samples', default=5, type=int,
                     help='The number of augmented samples for each meta test sample')
 parser.add_argument('--test_batch_size', type=int, default=1, metavar='test_batch_size',
                     help='Size of test batch)')
+
+parser.add_argument('--subspace', choices=['covariance', 'pca', 'freq_dir', 'MNPCA_MANY'], default='MNPCA_MANY')
+
+parser.add_argument('--sample_collect', type=int, default=20)
+
+parser.add_argument('--special', type=bool, default=False)
+
 
 args = parser.parse_args()
 
@@ -223,7 +231,6 @@ print(*model_cfg.args)
 model = model_cfg.base(*model_cfg.args, num_classes=num_classes, **model_cfg.kwargs)
 model.to(args.device)
 
-
 if args.curve:
 
     assert args.rank == 2
@@ -277,44 +284,66 @@ if args.curve:
 
 else:
     assert len(args.checkpoint) == 1
-    swag_model = SWAG(
+    if args.subspace == 'MNPCA_MANY':
+        swag_model = SWAG(
+            model_cfg.base,
+            args.subspace,
+            {
+                'max_rank': 20,
+                'cov_mat': args.sample_collect
+                #'pca_rank': args.rank,
+            },
+            1e-6,
+            *model_cfg.args,
+            num_classes = num_classes,
+            **model_cfg.kwargs)
+        swag_model_pca = SWAGPCA(
         model_cfg.base,
-        subspace_type='pca',
-        subspace_kwargs={
+        'pca',
+        {
             'max_rank': 20,
             'pca_rank': args.rank,
         },
+        1e-6,
+        *model_cfg.args,
         num_classes=num_classes,
-        args=model_cfg.args,  kwargs=model_cfg.kwargs
-    )
-
-    swag_model.to(args.device)
+        **model_cfg.kwargs
+        )
+        swag_model.to(args.device)
+        swag_model_pca.to(args.device)
+    else:
+        swag_model = SWAG(
+            model_cfg.base,
+            num_classes=num_classes,
+            subspace_type=args.subspace,
+            subspace_kwargs={
+                'max_rank': 20,
+                'pca_rank': args.rank,
+            },
+            *model_cfg.args,
+            **model_cfg.kwargs)
+        swag_model.to(args.device)
 
     print('Loading: %s' % args.checkpoint[0])
     ckpt = torch.load(args.checkpoint[0])
     swag_model.load_state_dict(ckpt['state_dict'], strict=False)
+    swag_model_pca.load_state_dict(ckpt['state_dict'], strict=False)
+    #print(swag_model.cov_factor)
 
     # first take as input SWA
     swag_model.set_swa()
+    swag_model_pca.set_swa()
     utils.bn_update(train_loader, swag_model)
-    # print(utils.eval(meta_testloader, swag_model, losses.cross_entropy))
-    utils.mata_eval(swag_model, meta_valloader, meta_testloader, 'SWA:')
-    swag_model.sample(0.0)
-    utils.bn_update(train_loader, swag_model)
-    # print(utils.eval(meta_testloader, swag_model, losses.cross_entropy))
-    utils.mata_eval(swag_model, meta_valloader, meta_testloader, 'SWAG-0.0:')
-    swag_model.sample(0.5)
-    utils.bn_update(train_loader, swag_model)
-    # print(utils.eval(meta_testloader, swag_model, losses.cross_entropy))
-    utils.mata_eval(swag_model, meta_valloader, meta_testloader, 'SWAG-0.5:')
-    swag_model.sample(1.0)
-    utils.bn_update(train_loader, swag_model)
-    # print(utils.eval(meta_testloader, swag_model, losses.cross_entropy))
-    utils.mata_eval(swag_model, meta_valloader, meta_testloader, 'SWAG-1.0:')
+    utils.bn_update(train_loader, swag_model_pca)
+    #print(utils.eval(meta_testloader, swag_model, losses.cross_entropy))
+    utils.mata_eval(swag_model, meta_valloader, meta_testloader, 'SWAG:')
 
     mean, variance, cov_factor = swag_model.get_space()
+    mean_pca, variance_pca, cov_factor_pca = swag_model_pca.get_space()
+    
+    #for sp in swag_model.subspace.subspaces.values():
+        #print(sp.dimensions, sp.pca_ranks)
 
-    print(np.linalg.norm(cov_factor, axis=1))
     if args.random:
         cov_factor = cov_factor.cpu().numpy()
         scale = 0.5 * (np.linalg.norm(cov_factor[1, :]) + np.linalg.norm(cov_factor[0, :]))
@@ -331,20 +360,37 @@ else:
         cov_factor *= scale
 
         print(cov_factor[:, 0])
-
+#change
         cov_factor = torch.FloatTensor(cov_factor, device=mean.device)
+    if args.subspace == 'pca':
+        subspace = SubspaceModel(mean, cov_factor)
+        #print(cov_factor.shape, mean.shape)
+        theta = torch.zeros(args.rank)
+    elif args.special:
+        subspace = MNPCA_SubspaceModel_spec(mean, swag_model.subspace.subspaces, cov_factor)
+        theta = torch.zeros(4)
+        subspace_pca = SubspaceModel(mean_pca, cov_factor_pca)
+        theta_pca = torch.zeros(args.rank)
+    else:
+        subspace = MNPCA_SubspaceModel(mean, swag_model.subspace.subspaces, cov_factor)
+        lens = 0
+        for sp in swag_model.subspace.subspaces.values():
+            lens += np.prod(sp.pca_ranks)
+        print(lens)
+        theta = torch.zeros(lens)
 
-    subspace = SubspaceModel(mean, cov_factor)
 
-    theta = torch.zeros(args.rank)
-
-
-def log_pdf(theta, subspace, model, loader, criterion, temperature, device):
-    w = subspace(torch.FloatTensor(theta))
-    offset = 0
-    for param in model.parameters():
-        param.data.copy_(w[offset:offset + param.numel()].view(param.size()).to(device))
-        offset += param.numel()
+def log_pdf(theta, subspace, model, loader, criterion, temperature, device, temp_pca = False):
+    if args.subspace != 'MNPCA_MANY' or temp_pca:
+        w = subspace(torch.FloatTensor(theta))
+        offset = 0
+        for param in model.parameters():
+            param.data.copy_(w[offset:offset + param.numel()].view(param.size()).to(device))
+            offset += param.numel()
+    else:
+        w = subspace(theta)
+        for name, param in model.named_parameters():
+            param.data.copy_(torch.from_numpy(w[name]).view(param.size()).to(device))
     model.train()
     with torch.no_grad():
         loss = 0
@@ -366,6 +412,24 @@ def oracle(theta):
         temperature=args.temperature,
         device=args.device
     )
+
+def oracle_pca(theta):
+    return log_pdf(
+        theta,
+        subspace=subspace_pca,
+        model=model,
+        loader=train_loader,
+        criterion=losses.cross_entropy,
+        temperature=5000,#args.temperature,
+        device=args.device,
+        temp_pca = True
+    )
+'''
+query_length = len(meta_testloader.dataset) * len(meta_testloader.dataset[0][-1])
+ens_predictions = np.zeros((query_length, args.n_ways))
+targets = np.zeros((query_length , args.n_ways))
+'''
+#change
 query_length = len(meta_testloader.dataset) * len(meta_testloader.dataset[0][-1])
 ens_predictions = np.zeros((query_length, args.n_ways))
 ens_predictions_feats = np.zeros((query_length, args.n_ways))
@@ -373,48 +437,103 @@ targets = np.zeros((query_length , args.n_ways))
 targets_feats = np.zeros((query_length , args.n_ways))
 
 columns = ['iter', 'log_prob', 'acc', 'nll', 'time']
-
-samples = np.zeros((args.num_samples, args.rank))
+#change
+samples = np.zeros((args.num_samples, 4))
+samples_pca = np.zeros((args.num_samples, args.rank))
 
 for i in range(args.num_samples):
+#for i in range(0):
     time_sample = time.time()
-    prior_sample = np.random.normal(loc=0.0, scale=args.prior_std, size=args.rank)
+    prior_sample = np.random.normal(loc=0.0, scale=args.prior_std, size=4)
     theta, log_prob = elliptical_slice(initial_theta=theta.numpy().copy(), prior=prior_sample,
                                                     lnpdf=oracle)
     samples[i, :] = theta
     theta = torch.FloatTensor(theta)
-    print(theta)
     w = subspace(theta)
-    offset = 0
-    for param in model.parameters():
-        param.data.copy_(w[offset:offset + param.numel()].view(param.size()).to(args.device))
-        offset += param.numel()
-
+    if args.subspace != 'MNPCA_MANY':
+        offset = 0
+        for param in model.parameters():
+            param.data.copy_(w[offset:offset + param.numel()].view(param.size()).to(args.device))
+            offset += param.numel()
+    else:
+        for name, param in model.named_parameters():
+            param.data.copy_(torch.from_numpy(w[name]).view(param.size()).to(args.device))
     utils.bn_update(train_loader, model, subset=args.bn_subset)
-    pred_res = utils.predict(meta_testloader, model)
-    pred_res_feats = utils.predict(meta_testloader, model, use_logit=False)
+    pred_res = utils.predict(meta_testloader, model)#use logit, testloader=test and no feat
+    #new
+    pred_res_feats = utils.predict(meta_testloader, model, use_logit=False)   
     utils.mata_eval(model, meta_valloader, meta_testloader, 'SWAG-ess')
     ens_predictions += pred_res['predictions']
+    #new
     ens_predictions_feats += pred_res_feats['predictions']
     targets = pred_res['targets']
+    #new
     targets_feats = pred_res_feats['targets']
-
     time_sample = time.time() - time_sample
     values = ['%3d/%3d' % (i + 1, args.num_samples),
               log_prob,
               np.mean(np.argmax(ens_predictions, axis=1) == targets),
               nll(ens_predictions / (i + 1), targets),
               time_sample]
+    #new
     values_feats = ['%3d/%3d' % (i + 1, args.num_samples),
               log_prob,
               np.mean(np.argmax(ens_predictions_feats, axis=1) == targets_feats),
               nll(ens_predictions_feats / (i + 1), targets_feats),
               time_sample]
+    #change
     table = tabulate.tabulate([values] + [values_feats], columns, tablefmt='simple', floatfmt='8.4f')
+    #table = tabulate.tabulate([values], columns, tablefmt='simple', floatfmt='8.4f')
     if i == 0:
         print(table)
     else:
-        print(table.split('\n')[2])
+        print(table)
+        #print(table.split('\n')[2])
+print('in pca mode')
+for i in range(args.num_samples):
+    time_sample = time.time()
+    prior_sample = np.random.normal(loc=0.0, scale=args.prior_std, size=args.rank)
+    theta_pca, log_prob = elliptical_slice(initial_theta=theta_pca.numpy().copy(), prior=prior_sample,
+                                                    lnpdf=oracle_pca)
+    samples_pca[i, :] = theta_pca
+    theta_pca = torch.FloatTensor(theta_pca)
+    #print(theta)
+    w = subspace_pca(theta_pca)
+    offset = 0
+    for param in model.parameters():
+        param.data.copy_(w[offset:offset + param.numel()].view(param.size()).to(args.device))
+        offset += param.numel()
+    utils.bn_update(train_loader, model, subset=args.bn_subset)
+    pred_res = utils.predict(meta_testloader, model)
+    #new
+    pred_res_feats = utils.predict(meta_testloader, model, use_logit=False) 
+    utils.mata_eval(model, meta_valloader, meta_testloader, 'SWAG-ess')
+    ens_predictions += pred_res['predictions']
+    #new
+    ens_predictions_feats += pred_res_feats['predictions']
+    targets = pred_res['targets']
+    #new
+    targets_feats = pred_res_feats['targets']
+    time_sample = time.time() - time_sample
+    values = ['%3d/%3d' % (i + 1, args.num_samples),
+              log_prob,
+              np.mean(np.argmax(ens_predictions, axis=1) == targets),
+              nll(ens_predictions / (i + 1), targets),
+              time_sample]
+    #new
+    values_feats = ['%3d/%3d' % (i + 1, args.num_samples),
+              log_prob,
+              np.mean(np.argmax(ens_predictions_feats, axis=1) == targets_feats),
+              nll(ens_predictions_feats / (i + 1), targets_feats),
+              time_sample]
+    #change
+    table = tabulate.tabulate([values] + [values_feats], columns, tablefmt='simple', floatfmt='8.4f')
+    #table = tabulate.tabulate([values], columns, tablefmt='simple', floatfmt='8.4f')
+    if i == 0:
+        print(table)
+    else:
+        print(table)
+        #print(table.split('\n')[2])
 
 ens_predictions /= args.num_samples
 ens_acc = np.mean(np.argmax(ens_predictions, axis=1) == targets)
@@ -424,7 +543,7 @@ print("Ensemble Accuracy:", ens_acc)
 
 print("Ensemble Acc:", ens_acc)
 print("Ensemble NLL:", ens_nll)
-
+#new
 ens_predictions_feats /= args.num_samples
 ens_acc_feats = np.mean(np.argmax(ens_predictions_feats, axis=1) == targets_feats)
 ens_nll_feats = nll(ens_predictions_feats, targets_feats)
@@ -433,13 +552,15 @@ print("Ensemble Accuracy Feats:", ens_acc_feats)
 
 print("Ensemble Acc Feats:", ens_acc_feats)
 print("Ensemble NLL Feats:", ens_nll_feats)
+
 if not os.path.exists(args.dir):
     os.mkdir(args.dir)
 np.savez(
     os.path.join(args.dir, 'ens.npz'),
     seed=args.seed,
     samples=samples,
-    ens_predictions=ens_predictions_feats,
+    ens_predictions=ens_predictions_feats,#change
+    #ens_predictions=ens_predictions,
     targets=targets,
     ens_acc=ens_acc,
     ens_nll=ens_nll

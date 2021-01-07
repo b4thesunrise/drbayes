@@ -241,7 +241,8 @@ class resnet12:
     base = ResNet
     args = [BasicBlock, [1, 1, 1, 1]]
     kwargs = {'keep_prob':1.0, 'avg_pool':True, 'drop_rate':0.1, 'dropblock_size':2}
-# avg_pool=True, drop_rate=0.1, dropblock_size=2,
+  # avg_pool=True, drop_rate=0.1, dropblock_size=2,
+
 class resnet18:
     base = ResNet
     args = [BasicBlock, [1, 1, 2, 2]]

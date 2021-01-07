@@ -2,7 +2,7 @@ import torch
 
 from ..utils import flatten, set_weights
 from .subspaces import Subspace
-import copy
+
 
 class SWAG(torch.nn.Module):
 
@@ -20,11 +20,8 @@ class SWAG(torch.nn.Module):
         # Initialize subspace
         if subspace_kwargs is None:
             subspace_kwargs = dict()
-        subspace_kwargs['model'] = self.base_model
-        subspace_kwargs['num_parameters'] = self.num_parameters
-        #self.register_buffer('subspace', Subspace.create(subspace_type, **subspace_kwargs))
-        self.subspace = Subspace.create(subspace_type, **subspace_kwargs)
-        self.subspace_name = subspace_type
+        self.subspace = Subspace.create(subspace_type, num_parameters=self.num_parameters,
+                                        **subspace_kwargs)
 
         self.var_clamp = var_clamp
 
@@ -96,4 +93,4 @@ class SWAG(torch.nn.Module):
             return mean.clone(), variance.clone()
         else:
             self.fit()
-            return mean.clone(), variance.clone(), copy.deepcopy(self.cov_factor)
+            return mean.clone(), variance.clone(), self.cov_factor.clone()

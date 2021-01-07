@@ -6,6 +6,7 @@ import tabulate
 import torch
 import torch.nn.functional as F
 import torchvision
+import pickle
 import numpy as np
 
 from subspace_inference.dataset.mini_imagenet import ImageNet, MetaImageNet
@@ -57,14 +58,13 @@ parser.add_argument('--no_schedule', action='store_true', help='store schedule')
 
 parser.add_argument('--save_iterates', action='store_true', help='save all iterates in the SWA(G) stage (default: off)')
 parser.add_argument('--inference', choices=['low_rank_gaussian', 'projected_sgd'], default='low_rank_gaussian')
-parser.add_argument('--subspace', choices=['covariance', 'pca', 'freq_dir'], default='covariance')
+parser.add_argument('--subspace', choices=['covariance', 'pca', 'freq_dir', 'MNPCA_MANY'], default='MNPCA_MANY')
 
 #from rfs
 
 parser.add_argument('--transform', type=str, default='A', choices=transforms_list)
 parser.add_argument('--use_trainval', action='store_true', help='use trainval set')
 parser.add_argument('--lr_step', action='store_true', help='use trainval set')
-parser.add_argument('--swa_lr_step', action='store_true', help='use trainval set')
 
 parser.add_argument('--dataset', type=str, default='CIFAR10', help='dataset name (default: CIFAR10)',choices=['miniImageNet', 'tieredImageNet',
                                                                                                               'CIFAR-FS', 'FC100', 'CIFAR10', 'CIFAR100'])
@@ -72,8 +72,7 @@ parser.add_argument('--data_root', type=str, default='', help='path to data root
 # meta setting
 parser.add_argument('--adam', action='store_true', help='use adam optimizer')
 parser.add_argument('--learning_rate', type=float, default=0.05, help='learning rate')
-# parser.add_argument('--lr_decay_epochs', type=str, default='70,90,100', help='where to decay lr, can be a list')
-parser.add_argument('--lr_decay_epochs', type=str, default='60,80', help='where to decay lr, can be a list')
+parser.add_argument('--lr_decay_epochs', type=str, default= '70,90,100', help='where to decay lr, can be a list')#change 60,80
 parser.add_argument('--lr_decay_rate', type=float, default=0.1, help='decay rate for learning rate')
 parser.add_argument('--weight_decay', type=float, default=5e-4, help='weight decay')
 parser.add_argument('--momentum', type=float, default=0.9, help='momentum')
@@ -91,6 +90,8 @@ parser.add_argument('--n_aug_support_samples', default=5, type=int,
 parser.add_argument('--test_batch_size', type=int, default=1, metavar='test_batch_size',
                     help='Size of test batch)')
 args = parser.parse_args()
+
+print(args.lr_step)
 
 if args.use_trainval:
     args.trial = args.trial + '_trainval'
@@ -221,15 +222,14 @@ else:
     args.no_cov_mat = True
 if args.swag:
     print('SWAG training')
-    swag_model = SWAG(model_cfg.base,
-                    args.subspace, subspace_kwargs={'max_rank': args.max_num_models}, num_classes=num_classes,
-             args=model_cfg.args,  kwargs=model_cfg.kwargs)
+    swag_model = SWAG(model_cfg.base, args.subspace, {'max_rank': args.max_num_models},1e-6,*model_cfg.args, num_classes=num_classes, **model_cfg.kwargs)
     swag_model.to(args.device)
 else:
     print('SGD training')
 
-
+#new
 def schedule(epoch, args):
+    #new
     steps = np.sum(epoch > np.asarray(args.lr_decay_epochs))
     t = (epoch) / (args.swag_start if args.swag else args.epochs)
     lr_ratio = args.swag_lr / args.lr_init if args.swag else 0.01
@@ -239,9 +239,10 @@ def schedule(epoch, args):
         factor = 1.0 - (1.0 - lr_ratio) * (t - 0.5) / 0.4
     else:
         factor = lr_ratio
-    factor = factor if args.swa_lr_step else 1
-    lr_factor = args.lr_decay_rate ** steps if args.lr_step else 1
-    return args.lr_init * factor * lr_factor
+    #new
+    if args.lr_step:
+        factor = args.lr_decay_rate ** steps
+    return args.lr_init * factor
 
 # use a slightly modified loss function that allows input of model 
 if args.loss == 'CE':
@@ -304,7 +305,14 @@ n_ensembled = 0.
 
 for epoch in range(start_epoch, args.epochs):
     time_ep = time.time()
-
+    '''
+    if args.lr_step:
+        new_lr = utils.adjust_learning_rate_lrstep(epoch, args, optimizer)
+        lr = new_lr
+    elif not args.no_schedule:
+        lr = schedule(epoch)
+        utils.adjust_learning_rate(epoch, optimizer, lr)
+   '''
     if not args.no_schedule:
         lr = schedule(epoch, args)
         utils.adjust_learning_rate(optimizer, lr)
@@ -325,10 +333,10 @@ for epoch in range(start_epoch, args.epochs):
 
     if args.swag and (epoch + 1) > args.swag_start and (epoch + 1 - args.swag_start) % args.swag_c_epochs == 0:
         sgd_preds, sgd_targets = utils.predictions(val_loader, model)
-        # sgd_res = utils.predict(val_loader, model)
-        # sgd_preds = sgd_res["predictions"]
-        # sgd_targets = sgd_res["targets"]
-        # print("updating sgd_ens")
+        #sgd_res = utils.predict(val_loader, model)
+        #sgd_preds = sgd_res["predictions"]
+        #sgd_targets = sgd_res["targets"]
+        print("updating sgd_ens")
         if sgd_ens_preds is None:
             sgd_ens_preds = sgd_preds.copy()
         else:
@@ -336,9 +344,19 @@ for epoch in range(start_epoch, args.epochs):
             sgd_ens_preds = sgd_ens_preds * n_ensembled / (n_ensembled + 1) + sgd_preds/ (n_ensembled + 1)
         n_ensembled += 1
         swag_model.collect_model(model)
+        '''
+        if epoch > 3:
+            swag_model.fit()
+            print(swag_model.cov_factor)
+            utils.save_checkpoint(
+                args.dir,
+                args.epochs,
+                name='swag',
+                state_dict=swag_model.state_dict(),
+            )
+         '''
         if epoch == 0 or epoch % args.eval_freq == args.eval_freq - 1 or epoch == args.epochs - 1:
-            # swag_model.set_swa()
-            swag_model.sample(0.0)
+            swag_model.set_swa()
             utils.bn_update(train_loader, swag_model)
             swag_res = utils.eval(val_loader, swag_model, criterion)
             utils.mata_eval(swag_model, meta_valloader, meta_testloader, 'SWAG', classifier='LR')
